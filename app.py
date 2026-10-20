@@ -1,113 +1,64 @@
-import random
 import streamlit as st
+from google import genai
 
-st.set_page_config(
-    page_title="MathQuest - 20 Szintű Matek Kaland", page_icon="📐"
-)
+st.set_page_config(page_title="MathQuest", page_icon="🧮")
+st.title("🧮 MathQuest - Pólya Mentor")
 
-# --- JÁTÉK ÁLLAPOT INICIALIZÁLÁSA ---
-if "level" not in st.session_state:
-    st.session_state.level = 1
-if "nim_sticks" not in st.session_state:
-    st.session_state.nim_sticks = 15
-if "dice_score" not in st.session_state:
-    st.session_state.dice_score = 0
+# API Kulcs lekérése (Secrets-ből vagy beviteli mezőből)
+api_key = st.sidebar.text_input("Gemini API kulcs:", type="password")
 
-st.title("📐 MathQuest: A 20 Szintű Matematikai Kihívás")
-st.progress(st.session_state.level / 20)
-st.subheader(f"🏆 Jelenlegi szint: {st.session_state.level} / 20")
+if not api_key:
+    st.info("Kérlek, add meg a Gemini API kulcsot a bal oldali sávban!")
+    st.stop()
 
-# --- SZINTEK DEFINIÁLÁSA ---
+# Ügyfél inicializálása az új SDK-val
+client = genai.Client(api_key=api_key)
 
-# 1. SZINT
-if st.session_state.level == 1:
-    st.markdown("### 1. Szint: A Tündérrózsák Rejtélye")
-    st.write(
-        "Egy tóban a tündérrózsák területe minden nap a duplájára nő. Ha a 20. napon lepi el félig a tavat, hányadik napon lepi el teljesen?"
-    )
-    ans = st.number_input("Válaszod (nap):", step=1, value=0)
-    if st.button("Ellenőrzés"):
-        if ans == 21:
-            st.success("Helyes! Mivel naponta duplázódik, a 21. napra éri el a 100%-ot.")
-            if st.button("Következő szint ➔"):
-                st.session_state.level = 2
-                st.rerun()
-        else:
-            st.error("Nem jó! Gondold át: ha ma félig van, és holnapra megduplázódik, mikor lesz tele?")
+# Session State inicializálás
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "model", "text": "Szia! Milyen matematikai feladaton dolgozol most? Írd le a szövegét!"}
+    ]
 
-# 2. SZINT
-elif st.session_state.level == 2:
-    st.markdown("### 2. Szint: A Kakas Kérdése")
-    st.write(
-        "Ha egy kakas tojást tojik a kerítés tetejére, melyik oldalra esik le a tojás?"
-    )
-    ans = st.radio(
-        "Válassz:", ["Balra", "Jobbra", "A kerítésen marad", "A kakas nem tojik tojást"]
-    )
-    if st.button("Ellenőrzés"):
-        if ans == "A kakas nem tojik tojást":
-            st.success("Így van! Figyelni kell a részletekre.")
-            st.session_state.level = 3
-            st.rerun()
-        else:
-            st.error("Próbáld újra! Biztos, hogy a kakas tojik?")
+# Korábbi üzenetek megjelenítése
+for msg in st.session_state.messages:
+    role = "user" if msg["role"] == "user" else "assistant"
+    with st.chat_message(role):
+        st.write(msg["text"])
 
-# 3. SZINT
-elif st.session_state.level == 3:
-    st.markdown("### 3. Szint: Hiányzó Láncszem")
-    st.write("Milyen szám következik a sorozatban? **2, 3, 5, 7, 11, 13, ?**")
-    ans = st.number_input("Következő szám:", step=1, value=0)
-    if st.button("Ellenőrzés"):
-        if ans == 17:
-            st.success("Pontos! Ezek a prím számok sorban.")
-            st.session_state.level = 4
-            st.rerun()
-        else:
-            st.error("Nem talált. Milyen tulajdonsága van ezeknek a számoknak?")
+# Beviteli mező (st.chat_input)
+if prompt := st.chat_input("Írd ide a válaszod..."):
+    # Felhasználó üzenetének mentése és kiírása
+    st.session_state.messages.append({"role": "user", "text": prompt})
+    with st.chat_message("user"):
+        st.write(prompt)
 
-# 4. SZINT (Gép elleni játék: 15 pálcika Nim)
-elif st.session_state.level == 4:
-    st.markdown("### 4. Szint: A Nim-Játék (Gép Elleni Csatamező)")
-    st.write(
-        "15 pálcika van az asztalon. Felváltva vehettek el 1, 2 vagy 3 pálcikát. **Aki az utolsót veszi el, az VESZÍT!**"
-    )
-    st.info(f"Fennmaradó pálcikák: {'🥖 ' * st.session_state.nim_sticks} ({st.session_state.nim_sticks} db)")
+    # Rendszerutmutató a Pólya-módszerhez
+    system_instruction = """
+    Egy segítőkész matematikatanár vagy. A célod, hogy Pólya György 4 lépéses módszerével
+    (1. Megértés, 2. Terv, 3. Végrehajtás, 4. Visszatekintés) rávezesd a diákot a feladat megoldására.
+    SZIGORÚ SZABÁLY: Soha ne mondd ki a végső választ vagy az ismeretlen értékét! 
+    Mindig csak egy lépést kérdezz vagy javíts!
+    """
 
-    take = st.selectbox("Hány pálcikát veszel el?", [1, 2, 3])
-    if st.button("Elveszem"):
-        st.session_state.nim_sticks -= take
-        if st.session_state.nim_sticks <= 0:
-            st.error("Elvetted az utolsó pálcikát, vesztettél! A játék újraindul ezen a szinten.")
-            st.session_state.nim_sticks = 15
-        else:
-            # Gép lépése (intelligens stratégia)
-            ai_take = (st.session_state.nim_sticks - 1) % 4
-            if ai_take == 0:
-                ai_take = 1
-            st.session_state.nim_sticks -= ai_take
-            st.warning(f"A gép elvett {ai_take} pálcikát.")
-            if st.session_state.nim_sticks <= 0:
-                st.success("A gép kénytelen volt elvenni az utolsót! NYERTÉL!")
-                st.session_state.nim_sticks = 15
-                st.session_state.level = 5
-                st.rerun()
+    # AI válasz generálása
+    with st.chat_message("assistant"):
+        with st.spinner("Gondolkodom..."):
+            try:
+                # Előzmények átadása
+                chat_history = []
+                for m in st.session_state.messages:
+                    chat_history.append({"role": m["role"], "parts": [{"text": m["text"]}]})
 
-# 5. SZINT
-elif st.session_state.level == 5:
-    st.markdown("### 5. Szint: A Kézfogások Száma")
-    st.write(
-        "Egy 6 fős társaságban mindenki mindenkivel egyszer kezet fog. Hány kézfogás történik összesen?"
-    )
-    ans = st.number_input("Kézfogások száma:", step=1, value=0)
-    if st.button("Ellenőrzés"):
-        if ans == 15:
-            st.success("Helyes! (6 × 5) / 2 = 15 kézfogás.")
-            st.session_state.level = 6
-            st.rerun()
-        else:
-            st.error("Sajnos nem. Ne felejtsd el, hogy ha A kezet fog B-vel, az ugyanaz, mint B A-val!")
-
-# (További szintek tetszőlegesen bővíthetők a 20-ig...)
-elif st.session_state.level == 20:
-    st.balloons()
-    st.title("🎉 GRATULÁLOK! Legyőzted a 20 Szintet és Teljesítetted a MathQuestet!")
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=chat_history,
+                    config={"system_instruction": system_instruction}
+                )
+                
+                ai_text = response.text
+                st.write(ai_text)
+                st.session_state.messages.append({"role": "model", "text": ai_text})
+                
+            except Exception as e:
+                st.error(f"Hiba történt: {e}")
